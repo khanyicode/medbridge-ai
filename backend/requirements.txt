@@ -1,6 +1,6 @@
 fastapi
 uvicorn
+python-multipart
+python-telegram-bot==22.7
 python-dotenv
-python-telegram-bot
-google-generativeai
-requests
+google-genai
