@@ -4,14 +4,16 @@ import subprocess
 import time
 import json
 import urllib.request
+import zipfile
+import tarfile
 
 def run_command(command, background=False):
-    """Runs a system command safely across Windows, Mac, and Linux."""
+    """Executes a system command cleanly across Windows, Mac, and Linux."""
     if background:
         if os.name == 'nt': # Windows
-            return subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            return subprocess.Popen(command, shell=True)
         else: # Mac/Linux
-            return subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, preexec_fn=os.setpgrp)
+            return subprocess.Popen(command, shell=True, preexec_fn=os.setpgrp)
     else:
         return subprocess.run(command, shell=True)
 
@@ -36,45 +38,99 @@ if not bot_token:
     print("❌ Error: TELEGRAM_BOT_TOKEN missing from .env file!")
     sys.exit(1)
 
-print("🌐 2. Creating a public secure URL via built-in SSH Tunnel (No Node.js needed)...")
+print("🌐 2. Setting up Cloudflare Tunnel binary...")
 
-# We use localhost.run via built-in SSH. It works natively on Windows, Mac, and Linux.
-# The StrictHostKeyChecking=no flag ensures it bypasses any interactive "trust this key" prompt.
-ssh_cmd = "ssh -R 80:localhost:8000 -o StrictHostKeyChecking=no nokey@localhost.run"
-ssh_proc = run_command(ssh_cmd, background=True)
+# Determine OS and local binary name
+is_windows = os.name == 'nt'
+binary_name = "cloudflared.exe" if is_windows else "./cloudflared"
 
-# Give the SSH connection a few seconds to shake hands and print the domain link
-time.sleep(5)
+# Download the official Cloudflare binary if it doesn't exist yet
+if not os.path.exists(binary_name.replace("./", "")):
+    print("   📥 Downloading official cloudflared binary directly from Cloudflare GitHub...")
+    try:
+        if is_windows:
+            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            urllib.request.urlretrieve(url, "cloudflared.exe")
+        else:
+            # Mac / Linux handling
+            import platform
+            system = platform.system().lower()
+            if system == "darwin":
+                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+                urllib.request.urlretrieve(url, "cloudflared.tgz")
+                with tarfile.open("cloudflared.tgz", "r:gz") as tar:
+                    tar.extractall()
+                os.remove("cloudflared.tgz")
+            else:
+                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+                urllib.request.urlretrieve(url, "cloudflared")
+            
+            # Make binary executable on Unix systems
+            os.chmod("cloudflared", 0o755)
+        print("   ✅ Download complete!")
+    except Exception as e:
+        print(f"   ❌ Failed to download Cloudflare binary natively: {e}")
+        sys.exit(1)
+
+print("🌐 3. Exposing local port 8000 via Cloudflare Quick Tunnel...")
+
+if os.path.exists("tunnel.log"):
+    try: os.remove("tunnel.log")
+    except: pass
+
+# Launch the downloaded binary directly, skipping npm entirely
+cf_cmd = f"{binary_name} tunnel --url http://localhost:8000 > tunnel.log 2>&1"
+cf_proc = run_command(cf_cmd, background=True)
+
+# Give Cloudflare 7 seconds to establish connection handshake and output the domain
+time.sleep(7)
 
 public_url = ""
-# Read the stdout stream from the background process to grab the generated domain link
-try:
-    # Read a chunk of output lines to locate the line containing localhost.run
-    for _ in range(10):
-        # Read line without blocking indefinitely if there's no output
-        import select
-        if os.name != 'nt':
-            ready, _, _ = select.select([ssh_proc.stdout], [], [], 1)
-            if not ready: break
-        
-        line = ssh_proc.stdout.readline()
-        if "lhrtunnel.link" in line or "localhost.run" in line:
-            # Extract the raw url from the string
-            parts = line.strip().split()
-            for part in parts:
-                if "https://" in part:
-                    public_url = part
+if os.path.exists("tunnel.log"):
+    with open("tunnel.log", "r", encoding="utf-8", errors="ignore") as f:
+        log_lines = f.readlines()
+        for line in log_lines:
+            if "trycloudflare.com" in line:
+                parts = line.strip().split()
+                for part in parts:
+                    if "https://" in part and "trycloudflare.com" in part:
+                        public_url = part.strip()
+                        break
+                if public_url:
                     break
-            if public_url: break
-except Exception:
-    pass
 
-# Fallback: If parsing stdout was messy or restricted by OS pipes, prompt the user or handle failure
 if not public_url:
-    print("⚠️  Could not auto-read the generated URL structure.")
-    print("💡 Please double check if your firewall or network blocks outgoing SSH tunnels.")
-    print("Let's try to boot the server anyway...")
-    public_url = "PENDING"
+    print("❌ Could not extract a valid live Cloudflare domain from logs.")
+    print("💡 Here is what Cloudflare printed inside 'tunnel.log':\n")
+    if os.path.exists("tunnel.log"):
+        with open("tunnel.log", "r", encoding="utf-8", errors="ignore") as f:
+            print(f.read())
+    cf_proc.terminate()
+    sys.exit(1)
 
-if public_url != "PENDING":
-    print(f"🔗 Public URL generated: {public_url}")
+print(f"🔗 Public Domain Linked: {public_url}")
+
+print("🤖 4. Informing Telegram where to route messages...")
+try:
+    webhook_url = f"https://api.telegram.org/bot{bot_token}/setWebhook?url={public_url}/telegram/webhook"
+    with urllib.request.urlopen(webhook_url) as response:
+        res = json.loads(response.read().decode())
+        if res.get("ok"):
+            print("   ✅ Webhook updated successfully!")
+        else:
+            print(f"   ❌ Telegram rejection: {res.get('description')}")
+except Exception as e:
+    print(f"   ❌ Webhook assignment error: {e}")
+
+print("\n🚀 5. Initializing local FastAPI instance...")
+print("💡 (Press CTRL+C or close this window to safely terminate the tunnel environment)\n")
+
+try:
+    # Run uvicorn server in the foreground
+    run_command(f"{sys.executable} -m uvicorn app.main:app --host 127.0.0.1 --port 8000")
+finally:
+    print("\n🛑 Cleaning up local system routing and shutting down...")
+    cf_proc.terminate()
+    if os.path.exists("tunnel.log"):
+        try: os.remove("tunnel.log")
+        except: pass
