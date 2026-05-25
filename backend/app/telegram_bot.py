@@ -9,25 +9,28 @@ load_dotenv()
 
 router = APIRouter()
 
-# Load token safely
+# Load bot token safely
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 if not BOT_TOKEN:
-    raise Exception("❌ TELEGRAM_BOT_TOKEN is missing in environment variables")
+    raise Exception("❌ Missing TELEGRAM_BOT_TOKEN in environment variables")
 
-# Create bot ONCE (stable for Render)
+# Create bot once (safe for Render)
 bot = Bot(token=BOT_TOKEN)
 
 
-# Background AI processing (prevents timeout)
+# -----------------------------
+# Background AI processing
+# -----------------------------
 async def process_ai(chat_id: int, user_text: str):
     try:
-        ai_result = analyze_symptoms(user_text)
+        # Run AI
+        result = analyze_symptoms(user_text)
 
         reply = f"""
 🩺 MedBridge AI Assessment
 
-{ai_result}
+{result}
 
 ⚠️ This is not a medical diagnosis.
 """
@@ -36,9 +39,15 @@ async def process_ai(chat_id: int, user_text: str):
 
     except Exception as e:
         print("🔥 AI ERROR:", e)
-        await bot.send_message(chat_id=chat_id, text="AI error occurred. Please try again.")
+        await bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ AI error occurred. Please try again."
+        )
 
 
+# -----------------------------
+# Telegram Webhook
+# -----------------------------
 @router.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
 
@@ -51,13 +60,13 @@ async def telegram_webhook(request: Request):
             chat_id = update.effective_chat.id
             user_text = update.message.text
 
-            # 1. Instant response (IMPORTANT)
+            # ⚡ 1. Immediate response (IMPORTANT for Telegram timeout)
             await bot.send_message(
                 chat_id=chat_id,
                 text="🧠 Processing your symptoms..."
             )
 
-            # 2. Run AI in background (fixes timeout)
+            # ⚡ 2. Run AI in background (prevents timeout)
             asyncio.create_task(process_ai(chat_id, user_text))
 
         return {"ok": True}
