@@ -3,25 +3,24 @@ import sys
 import subprocess
 import time
 import json
+import urllib.request
 
 def run_command(command, background=False):
     """Runs a system command safely across Windows, Mac, and Linux."""
     if background:
-        # Open in background without blocking the script
         if os.name == 'nt': # Windows
-            return subprocess.Popen(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         else: # Mac/Linux
-            return subprocess.Popen(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=os.setpgrp)
+            return subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, preexec_fn=os.setpgrp)
     else:
-        # Run and wait for completion
         return subprocess.run(command, shell=True)
 
-print(" 1. Installing Python dependencies...")
+print("📦 1. Installing Python dependencies...")
 run_command(f"{sys.executable} -m pip install -r requirements.txt")
 
 # Check if .env file exists
 if not os.path.exists(".env"):
-    print("\n Error: Please create a .env file with your TELEGRAM_BOT_TOKEN and GEMINI_API_KEY first!")
+    print("\n❌ Error: Please create a .env file with your TELEGRAM_BOT_TOKEN and GEMINI_API_KEY first!")
     sys.exit(1)
 
 # Read variables manually from .env
@@ -34,58 +33,48 @@ with open(".env", "r") as f:
 
 bot_token = env_vars.get("TELEGRAM_BOT_TOKEN")
 if not bot_token:
-    print(" Error: TELEGRAM_BOT_TOKEN missing from .env file!")
+    print("❌ Error: TELEGRAM_BOT_TOKEN missing from .env file!")
     sys.exit(1)
 
-print("🌐 2. Creating a public secure URL via localtunnel...")
-# Clear old logs if they exist
-if os.path.exists("lt.log"):
-    os.remove("lt.log")
+print("🌐 2. Creating a public secure URL via built-in SSH Tunnel (No Node.js needed)...")
 
-# Start localtunnel in the background
-lt_proc = run_command("npx localtunnel --port 8000 > lt.log 2>&1", background=True)
+# We use localhost.run via built-in SSH. It works natively on Windows, Mac, and Linux.
+# The StrictHostKeyChecking=no flag ensures it bypasses any interactive "trust this key" prompt.
+ssh_cmd = "ssh -R 80:localhost:8000 -o StrictHostKeyChecking=no nokey@localhost.run"
+ssh_proc = run_command(ssh_cmd, background=True)
 
-# Give localtunnel 4 seconds to negotiate an assignment URL
-time.sleep(4)
+# Give the SSH connection a few seconds to shake hands and print the domain link
+time.sleep(5)
 
 public_url = ""
-if os.path.exists("lt.log"):
-    with open("lt.log", "r") as f:
-        log_content = f.read()
-        # Find the line containing the URL
-        for line in log_content.split("\n"):
-            if "https://" in line:
-                public_url = line.strip().split()[-1]
-                break
+# Read the stdout stream from the background process to grab the generated domain link
+try:
+    # Read a chunk of output lines to locate the line containing localhost.run
+    for _ in range(10):
+        # Read line without blocking indefinitely if there's no output
+        import select
+        if os.name != 'nt':
+            ready, _, _ = select.select([ssh_proc.stdout], [], [], 1)
+            if not ready: break
+        
+        line = ssh_proc.stdout.readline()
+        if "lhrtunnel.link" in line or "localhost.run" in line:
+            # Extract the raw url from the string
+            parts = line.strip().split()
+            for part in parts:
+                if "https://" in part:
+                    public_url = part
+                    break
+            if public_url: break
+except Exception:
+    pass
 
+# Fallback: If parsing stdout was messy or restricted by OS pipes, prompt the user or handle failure
 if not public_url:
-    print(" localtunnel failed to start. Please make sure Node.js (npm) is installed globally!")
-    lt_proc.terminate()
-    sys.exit(1)
+    print("⚠️  Could not auto-read the generated URL structure.")
+    print("💡 Please double check if your firewall or network blocks outgoing SSH tunnels.")
+    print("Let's try to boot the server anyway...")
+    public_url = "PENDING"
 
-print(f"🔗 Public URL generated: {public_url}")
-
-print(" 3. Linking your Telegram Bot to this local machine...")
-# Use Python's built-in urllib to make the webhook request instead of curl/powershell
-import urllib.request
-try:
-    webhook_url = f"https://api.telegram.org/bot{bot_token}/setWebhook?url={public_url}/telegram/webhook"
-    with urllib.request.urlopen(webhook_url) as response:
-        res = json.loads(response.read().decode())
-        if res.get("ok"):
-            print(" Telegram Webhook linked successfully!")
-except Exception as e:
-    print(f"⚠️ Warning: Could not auto-set webhook via script: {e}")
-
-print("\n 4. Starting FastAPI server. Send a message to your Telegram bot now!")
-print(" (Press CTRL+C or close this window to stop the server)\n")
-
-try:
-    # Run uvicorn server in foreground
-    run_command(f"{sys.executable} -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
-finally:
-    # Cleanup background tunnel processes when exiting
-    print("\n Stopping tunnel and cleaning up...")
-    lt_proc.terminate()
-    if os.path.exists("lt.log"):
-        os.remove("lt.log")
+if public_url != "PENDING":
+    print(f"🔗 Public URL generated: {public_url}")
