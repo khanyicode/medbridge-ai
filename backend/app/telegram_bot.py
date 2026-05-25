@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Request
-from telegram import Update
-from telegram.ext import Application
+from telegram import Bot, Update
 from dotenv import load_dotenv
 from app.ai_service import analyze_symptoms
 import os
+import asyncio
 
 load_dotenv()
 
@@ -15,10 +15,28 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
     raise Exception("❌ TELEGRAM_BOT_TOKEN is missing in environment variables")
 
+# Create bot ONCE (stable for Render)
+bot = Bot(token=BOT_TOKEN)
 
-# Create bot ONLY when needed (prevents startup crash)
-def get_bot():
-    return Application.builder().token(BOT_TOKEN).build()
+
+# Background AI processing (prevents timeout)
+async def process_ai(chat_id: int, user_text: str):
+    try:
+        ai_result = analyze_symptoms(user_text)
+
+        reply = f"""
+🩺 MedBridge AI Assessment
+
+{ai_result}
+
+⚠️ This is not a medical diagnosis.
+"""
+
+        await bot.send_message(chat_id=chat_id, text=reply)
+
+    except Exception as e:
+        print("🔥 AI ERROR:", e)
+        await bot.send_message(chat_id=chat_id, text="AI error occurred. Please try again.")
 
 
 @router.post("/telegram/webhook")
@@ -30,40 +48,20 @@ async def telegram_webhook(request: Request):
 
         if update.message:
 
+            chat_id = update.effective_chat.id
             user_text = update.message.text
 
-            bot = get_bot()
-
-            # 1. FAST RESPONSE (prevents Telegram timeout)
-            await bot.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="🧠 Processing your symptoms... please wait"
+            # 1. Instant response (IMPORTANT)
+            await bot.send_message(
+                chat_id=chat_id,
+                text="🧠 Processing your symptoms..."
             )
 
-            try:
-                # 2. AI PROCESSING
-                ai_result = analyze_symptoms(user_text)
-
-                reply = f"""
-🩺 MedBridge AI Assessment
-
-{ai_result}
-
-⚠️ This is not a medical diagnosis.
-"""
-
-            except Exception as e:
-                print("🔥 AI ERROR:", str(e))
-                reply = f"AI error: {str(e)}"
-
-            # 3. FINAL RESPONSE
-            await bot.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=reply
-            )
+            # 2. Run AI in background (fixes timeout)
+            asyncio.create_task(process_ai(chat_id, user_text))
 
         return {"ok": True}
 
     except Exception as e:
-        print("🔥 WEBHOOK ERROR:", str(e))
+        print("🔥 WEBHOOK ERROR:", e)
         return {"ok": False, "error": str(e)}
