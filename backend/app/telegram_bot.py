@@ -9,27 +9,33 @@ load_dotenv()
 
 router = APIRouter()
 
+# Load token safely
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-app_bot = Application.builder().token(BOT_TOKEN).build()
+if not BOT_TOKEN:
+    raise Exception("❌ TELEGRAM_BOT_TOKEN is missing in environment variables")
+
+
+# We create the bot ONLY when needed (prevents Render crash)
+def get_bot():
+    return Application.builder().token(BOT_TOKEN).build()
 
 
 @router.post("/telegram/webhook")
-async def webhook(request: Request):
+async def telegram_webhook(request: Request):
 
-    data = await request.json()
+    try:
+        data = await request.json()
+        update = Update.de_json(data, None)
 
-    update = Update.de_json(data, app_bot.bot)
+        if update.message:
 
-    if update.message:
+            user_text = update.message.text
 
-        user_text = update.message.text
+            try:
+                ai_result = analyze_symptoms(user_text)
 
-        try:
-
-            ai_result = analyze_symptoms(user_text)
-
-            reply = f"""
+                reply = f"""
 🩺 MedBridge AI Assessment
 
 {ai_result}
@@ -37,15 +43,19 @@ async def webhook(request: Request):
 ⚠️ This is not a medical diagnosis.
 """
 
-        except Exception as e:
+            except Exception as e:
+                print("🔥 AI ERROR:", str(e))
+                reply = f"AI error: {str(e)}"
 
-            print("🔥 ERROR:", str(e))
+            bot = get_bot()
 
-            reply = f"AI error: {str(e)}"
+            await bot.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=reply
+            )
 
-        await app_bot.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=reply
-        )
+        return {"ok": True}
 
-    return {"ok": True}
+    except Exception as e:
+        print("🔥 WEBHOOK ERROR:", str(e))
+        return {"ok": False, "error": str(e)}
