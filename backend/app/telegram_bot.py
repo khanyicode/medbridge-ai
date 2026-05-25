@@ -16,7 +16,7 @@ if not BOT_TOKEN:
     raise Exception("❌ TELEGRAM_BOT_TOKEN is missing in environment variables")
 
 
-# We create the bot ONLY when needed (prevents Render crash)
+# Create bot ONLY when needed (prevents startup crash)
 def get_bot():
     return Application.builder().token(BOT_TOKEN).build()
 
@@ -32,7 +32,16 @@ async def telegram_webhook(request: Request):
 
             user_text = update.message.text
 
+            bot = get_bot()
+
+            # 1. FAST RESPONSE (prevents Telegram timeout)
+            await bot.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🧠 Processing your symptoms... please wait"
+            )
+
             try:
+                # 2. AI PROCESSING
                 ai_result = analyze_symptoms(user_text)
 
                 reply = f"""
@@ -47,8 +56,7 @@ async def telegram_webhook(request: Request):
                 print("🔥 AI ERROR:", str(e))
                 reply = f"AI error: {str(e)}"
 
-            bot = get_bot()
-
+            # 3. FINAL RESPONSE
             await bot.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=reply
