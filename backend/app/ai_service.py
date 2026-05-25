@@ -1,16 +1,19 @@
 import os
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
+# Load local environment variables if running locally
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# Explicitly pull from environment to guarantee Render picks up the key
+api_key = os.getenv("GEMINI_API_KEY")
 
-model = genai.GenerativeModel("gemini-2.5-flash")
+if not api_key:
+    print("❌ WARNING: GEMINI_API_KEY environment variable is missing!")
 
+client = genai.Client(api_key=api_key)
 
 def analyze_symptoms(message: str):
-
     prompt = f"""
 You are MedBridge AI, an AI-powered healthcare navigation assistant designed for South Africa.
 
@@ -56,6 +59,9 @@ User symptoms:
 {message}
 """
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+    )
 
     return response.text
