@@ -1,157 +1,157 @@
-# import os
-# import sys
-# import subprocess
-# import time
-# import json
-# import urllib.request
+import os
+import sys
+import subprocess
+import time
+import json
+import urllib.request
 
-# # =========================
-# # RUN COMMAND HELPER
-# # =========================
-# def run_command(command, cwd=None):
-#     return subprocess.Popen(command, shell=True, cwd=cwd)
-
-
-# # =========================
-# # CHECK PROJECT ROOT
-# # =========================
-# if not os.path.exists("backend") or not os.path.exists("frontend"):
-#     print("❌ Run this from: medbridge-ai ROOT folder")
-#     sys.exit(1)
+# =========================
+# RUN COMMAND HELPER
+# =========================
+def run_command(command, cwd=None):
+    return subprocess.Popen(command, shell=True, cwd=cwd)
 
 
-# # =========================
-# # INSTALL BACKEND DEPENDENCIES
-# # =========================
-# print("📦 Installing backend dependencies...")
-# subprocess.run(f"{sys.executable} -m pip install -r backend/requirements.txt", shell=True)
+# =========================
+# CHECK PROJECT ROOT
+# =========================
+if not os.path.exists("backend") or not os.path.exists("frontend"):
+    print("❌ Run this from: medbridge-ai ROOT folder")
+    sys.exit(1)
 
 
-# # =========================
-# # LOAD ENV
-# # =========================
-# env_path = "backend/.env"
-
-# if not os.path.exists(env_path):
-#     print("❌ backend/.env not found")
-#     sys.exit(1)
-
-# env_vars = {}
-
-# with open(env_path, "r") as f:
-#     for line in f:
-#         if "=" in line and not line.startswith("#"):
-#             k, v = line.strip().split("=", 1)
-#             env_vars[k] = v
-
-# bot_token = env_vars.get("TELEGRAM_BOT_TOKEN")
-
-# if not bot_token:
-#     print("❌ Missing TELEGRAM_BOT_TOKEN")
-#     sys.exit(1)
-
-# print("✅ Environment loaded")
+# =========================
+# INSTALL BACKEND DEPENDENCIES
+# =========================
+print("📦 Installing backend dependencies...")
+subprocess.run(f"{sys.executable} -m pip install -r backend/requirements.txt", shell=True)
 
 
-# # =========================
-# # START BACKEND
-# # =========================
-# print("\n🚀 Starting backend...")
+# =========================
+# LOAD ENV
+# =========================
+env_path = "backend/.env"
 
-# backend_proc = run_command(
-#     f"{sys.executable} -m uvicorn app.main:app --reload --port 8000",
-#     cwd="backend"
-# )
+if not os.path.exists(env_path):
+    print("❌ backend/.env not found")
+    sys.exit(1)
 
-# time.sleep(5)
+env_vars = {}
 
+with open(env_path, "r") as f:
+    for line in f:
+        if "=" in line and not line.startswith("#"):
+            k, v = line.strip().split("=", 1)
+            env_vars[k] = v
 
-# # =========================
-# # START FRONTEND
-# # =========================
-# print("\n⚛️ Starting frontend...")
+bot_token = env_vars.get("TELEGRAM_BOT_TOKEN")
 
-# frontend_proc = run_command(
-#     "npm run dev",
-#     cwd="frontend"
-# )
+if not bot_token:
+    print("❌ Missing TELEGRAM_BOT_TOKEN")
+    sys.exit(1)
 
-# time.sleep(8)
-
-
-# # =========================
-# # CLOUDFLARE TUNNEL (BACKEND)
-# # =========================
-# print("\n🌐 Starting tunnel...")
-
-# tunnel_log = "tunnel.log"
-
-# if os.path.exists(tunnel_log):
-#     os.remove(tunnel_log)
-
-# cf_proc = subprocess.Popen(
-#     "cloudflared tunnel --url http://localhost:8000 > tunnel.log 2>&1",
-#     shell=True
-# )
-
-# time.sleep(8)
+print("✅ Environment loaded")
 
 
-# # =========================
-# # GET PUBLIC URL
-# # =========================
-# public_url = ""
+# =========================
+# START BACKEND
+# =========================
+print("\n🚀 Starting backend...")
 
-# if os.path.exists("tunnel.log"):
-#     with open("tunnel.log", "r", errors="ignore") as f:
-#         for line in f:
-#             if "trycloudflare.com" in line:
-#                 parts = line.split()
-#                 for p in parts:
-#                     if "https://" in p:
-#                         public_url = p.strip()
-#                         break
+backend_proc = run_command(
+    f"{sys.executable} -m uvicorn app.main:app --reload --port 8000",
+    cwd="backend"
+)
 
-# if not public_url:
-#     print("❌ Tunnel failed")
-#     sys.exit(1)
-
-# print(f"\n🌍 Public URL: {public_url}")
+time.sleep(5)
 
 
-# # =========================
-# # TELEGRAM WEBHOOK
-# # =========================
-# print("\n📲 Setting webhook...")
+# =========================
+# START FRONTEND
+# =========================
+print("\n⚛️ Starting frontend...")
 
-# webhook_url = f"{public_url}/telegram/webhook"
+frontend_proc = run_command(
+    "npm run dev",
+    cwd="frontend"
+)
 
-# resp = urllib.request.urlopen(
-#     f"https://api.telegram.org/bot{bot_token}/setWebhook?url={webhook_url}"
-# )
-
-# print(json.dumps(json.loads(resp.read()), indent=2))
+time.sleep(8)
 
 
-# # =========================
-# # KEEP ALIVE
-# # =========================
-# print("\n🔥 ALL SYSTEMS LIVE")
-# print("Backend + Frontend + Telegram Bot running")
+# =========================
+# CLOUDFLARE TUNNEL (BACKEND)
+# =========================
+print("\n🌐 Starting tunnel...")
 
-# try:
-#     while True:
-#         time.sleep(1)
+tunnel_log = "tunnel.log"
 
-# except KeyboardInterrupt:
-#     print("\n🛑 Shutting down...")
+if os.path.exists(tunnel_log):
+    os.remove(tunnel_log)
 
-# finally:
-#     backend_proc.terminate()
-#     frontend_proc.terminate()
-#     cf_proc.terminate()
+cf_proc = subprocess.Popen(
+    "cloudflared tunnel --url http://localhost:8000 > tunnel.log 2>&1",
+    shell=True
+)
 
-#     if os.path.exists("tunnel.log"):
-#         os.remove("tunnel.log")
+time.sleep(8)
 
-#     print("✅ Clean exit")
+
+# =========================
+# GET PUBLIC URL
+# =========================
+public_url = ""
+
+if os.path.exists("tunnel.log"):
+    with open("tunnel.log", "r", errors="ignore") as f:
+        for line in f:
+            if "trycloudflare.com" in line:
+                parts = line.split()
+                for p in parts:
+                    if "https://" in p:
+                        public_url = p.strip()
+                        break
+
+if not public_url:
+    print("❌ Tunnel failed")
+    sys.exit(1)
+
+print(f"\n🌍 Public URL: {public_url}")
+
+
+# =========================
+# TELEGRAM WEBHOOK
+# =========================
+print("\n📲 Setting webhook...")
+
+webhook_url = f"{public_url}/telegram/webhook"
+
+resp = urllib.request.urlopen(
+    f"https://api.telegram.org/bot{bot_token}/setWebhook?url={webhook_url}"
+)
+
+print(json.dumps(json.loads(resp.read()), indent=2))
+
+
+# =========================
+# KEEP ALIVE
+# =========================
+print("\n🔥 ALL SYSTEMS LIVE")
+print("Backend + Frontend + Telegram Bot running")
+
+try:
+    while True:
+        time.sleep(1)
+
+except KeyboardInterrupt:
+    print("\n🛑 Shutting down...")
+
+finally:
+    backend_proc.terminate()
+    frontend_proc.terminate()
+    cf_proc.terminate()
+
+    if os.path.exists("tunnel.log"):
+        os.remove("tunnel.log")
+
+    print("✅ Clean exit")
