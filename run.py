@@ -5,6 +5,7 @@ import time
 import json
 import urllib.request
 import urllib.parse  # Used for safe URL encoding
+import hashlib       # Used for smart dependency checking
 from pathlib import Path
 
 # =========================
@@ -23,10 +24,38 @@ if not os.path.exists("backend") or not os.path.exists("frontend"):
 
 
 # =========================
-# INSTALL BACKEND DEPENDENCIES
+# SMART DEPENDENCY CHECK
 # =========================
-print("📦 Installing backend dependencies...")
-subprocess.run(f"{sys.executable} -m pip install -r backend/requirements.txt", shell=True)
+req_file = "backend/requirements.txt"
+hash_file = ".backend_req_hash"
+should_install = True
+
+try:
+    # Calculate current MD5 hash of requirements.txt
+    with open(req_file, "rb") as f:
+        current_hash = hashlib.md5(f.read()).hexdigest()
+    
+    # Compare with saved hash if it exists
+    if os.path.exists(hash_file):
+        with open(hash_file, "r") as f:
+            saved_hash = f.read().strip()
+        if current_hash == saved_hash:
+            should_install = False
+except Exception:
+    # If anything goes wrong reading hashes, default to safe installation
+    should_install = True
+
+if should_install:
+    print("📦 Dependencies changed or first run. Checking/Installing backend dependencies...")
+    subprocess.run(f"{sys.executable} -m pip install -r {req_file}", shell=True)
+    try:
+        # Save the new hash for next time
+        with open(hash_file, "w") as f:
+            f.write(current_hash)
+    except Exception:
+        pass
+else:
+    print("⏭️  Dependencies unchanged. Skipping package installation check...")
 
 
 # =========================
@@ -37,7 +66,7 @@ home_dir = Path.home()
 env_path = home_dir / ".medbridge" / "keys.env"
 
 if not env_path.exists():
-    print(f" Keys file not found: {env_path}")
+    print(f"❌ Keys file not found: {env_path}")
     sys.exit(1)
 
 env_vars = {}
@@ -60,18 +89,18 @@ gemini_api_key = env_vars.get("GEMINI_API_KEY")
 database_url = env_vars.get("DATABASE_URL")
 
 if not bot_token:
-    print("TELEGRAM_BOT_TOKEN missing in keys.env")
+    print("❌ TELEGRAM_BOT_TOKEN missing in keys.env")
     sys.exit(1)
 
 if not gemini_api_key:
-    print(" GEMINI_API_KEY missing in keys.env")
+    print("❌ GEMINI_API_KEY missing in keys.env")
     sys.exit(1)
 
 if not database_url:
-    print(" DATABASE_URL missing in keys.env")
+    print("❌ DATABASE_URL missing in keys.env")
     sys.exit(1)
 
-print(f" Loaded keys from: {env_path}")
+print(f"🔓 Loaded keys from: {env_path}")
 
 # CRITICAL FIX: Force-inject the keys into the system environment memory
 # This ensures backend processes can read them natively via os.getenv()
@@ -96,7 +125,7 @@ time.sleep(5)
 # =========================
 # START FRONTEND
 # =========================
-print("\n⚛️ Starting frontend...")
+print("\n⚛️  Starting frontend...")
 
 frontend_proc = run_command(
     "npm run dev",
@@ -141,7 +170,7 @@ if os.path.exists("tunnel.log"):
                         break
 
 if not public_url:
-    print(" Tunnel failed")
+    print("❌ Tunnel failed")
     sys.exit(1)
 
 print(f"\n🌍 Public URL: {public_url}")
