@@ -50,9 +50,9 @@ End with a short calming question.
 
 ---
 
-SECTION 2: BACKEND DATA (HIDDEN JSON - VERY IMPORTANT)
+SECTION 2: BACKEND DATA 
 
-At the END of your response, output ONLY valid JSON like this:
+At the  response, output ONLY valid JSON like this:
 
 {{
   "urgency_level": "LOW | MEDIUM | HIGH",
